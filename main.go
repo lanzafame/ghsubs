@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/google/go-github/github"
@@ -54,26 +55,56 @@ func main() {
 	}()
 
 	for {
+		subsURL, err = appendQueryParams(subsURL)
+		if err != nil {
+			log.Fatal(err)
+		}
 		resp, err := http.Get(subsURL)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			log.Fatal(resp)
+		}
+
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		rch <- string(body)
 
 		links := linkheader.Parse(resp.Header.Get("link"))
 		nexts := links.FilterByRel("next")
-		next := nexts[0]
+		var next linkheader.Link
+		if len(nexts) > 0 {
+			next = nexts[0]
+		}
 		lasts := links.FilterByRel("last")
-		last := lasts[0]
+		var last linkheader.Link
+		if len(lasts) > 0 {
+			last = lasts[0]
+		}
 		if next.URL == last.URL {
 			break
 		}
 		subsURL = next.URL
 	}
 
+}
+
+func appendQueryParams(u string) (string, error) {
+	// as we aren't going via the github client anymore
+	token := os.Getenv("GITHUB_TOKEN")
+	subsURL, err := url.Parse(u)
+	if err != nil {
+		return "", err
+	}
+	q := subsURL.Query()
+	q.Set("per_page", "100")
+	q.Set("access_token", token)
+	subsURL.RawQuery = q.Encode()
+	return subsURL.String(), nil
 }
